@@ -18,6 +18,7 @@ use std::{
         Arc,
     },
 };
+use serde_json::Value::Array;
 
 #[derive(Clone)]
 pub(crate) struct Socket {
@@ -84,7 +85,7 @@ impl Socket {
     /// Emits to certain event with given data. The data needs to be JSON,
     /// otherwise this returns an `InvalidJson` error.
     pub async fn emit(&self, nsp: &str, event: Event, data: Payload) -> Result<()> {
-        let socket_packet = self.build_packet_for_payload(data, event, nsp, None)?;
+        let socket_packet = Socket::build_packet_for_payload(data, event, nsp, None)?;
 
         self.send(socket_packet).await
     }
@@ -92,11 +93,10 @@ impl Socket {
     /// Returns a packet for a payload, could be used for bot binary and non binary
     /// events and acks. Convenance method.
     #[inline]
-    pub(crate) fn build_packet_for_payload<'a>(
-        &'a self,
+    pub(crate) fn build_packet_for_payload(
         payload: Payload,
         event: Event,
-        nsp: &'a str,
+        nsp: &str,
         id: Option<i32>,
     ) -> Result<Packet> {
         match payload {
@@ -113,9 +113,16 @@ impl Socket {
                 Some(vec![bin_data]),
             )),
             Payload::String(str_data) => {
-                serde_json::from_str::<serde_json::Value>(&str_data)?;
+                let event_tmp  = serde_json::Value::String(event.into());
+                let parsed = serde_json::from_str::<serde_json::Value>(&str_data)?;
+                let arr = if let Array(mut array) = parsed{
+                    array.insert(0, event_tmp);
+                    array.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+                }else{
+                    vec!(event_tmp.to_string(), parsed.to_string())
+                };
 
-                let payload = format!("[\"{}\",{}]", String::from(event), str_data);
+                let payload = format!("[{}]", arr.join(", "));
 
                 Ok(Packet::new(
                     PacketId::Event,
@@ -223,5 +230,30 @@ impl Debug for Socket {
             .field("engine_client", &self.engine_client)
             .field("connected", &self.connected)
             .finish()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use super::*;
+
+    #[test]
+    fn test_build_payload() {
+        let packet = Socket::build_packet_for_payload(json!(["1", "2"]).into(), Event::Message, "testNsp", Some(0));
+        assert!(matches!(packet, Ok(_)));
+        let ok_packet = packet.unwrap();
+        assert!(matches!(ok_packet.data, Some(_)));
+        assert_eq!(ok_packet.data.unwrap(), "[\"message\", \"1\", \"2\"]");
+    }
+
+    #[test]
+    fn test_build_payload2() {
+        let packet = Socket::build_packet_for_payload(json!("1").into(), Event::Message, "testNsp", Some(0));
+        assert!(matches!(packet, Ok(_)));
+        let ok_packet = packet.unwrap();
+        assert!(matches!(ok_packet.data, Some(_)));
+        assert_eq!(ok_packet.data.unwrap(), "[\"message\", \"1\"]");
     }
 }

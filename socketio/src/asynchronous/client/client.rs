@@ -19,6 +19,7 @@ use crate::{
     packet::{Packet, PacketId},
     Event, Payload,
 };
+use crate::asynchronous::socket::Socket;
 
 /// A socket which handles communication with the server. It's initialized with
 /// a specific address as well as an optional namespace to connect to. If `None`
@@ -220,8 +221,7 @@ impl Client {
     {
         let id = thread_rng().gen_range(0..999);
         let socket_packet =
-            self.socket
-                .build_packet_for_payload(data.into(), event.into(), &self.nsp, Some(id))?;
+            Socket::build_packet_for_payload(data.into(), event.into(), &self.nsp, Some(id))?;
 
         let ack = Ack {
             id,
